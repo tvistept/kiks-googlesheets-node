@@ -10,7 +10,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const TODAY = new Date();
 const { google } = require('googleapis');
 // const KEY_FILE = './google.json';
-const KEY_FILE = require('/app-configs/google.json');
+const {KEY_FILE} = require('/app-configs/google.json');
 const bot = new TelegramBot(token, {polling: true});
 
 async function appendRow(spreadsheetId, range, values) {
