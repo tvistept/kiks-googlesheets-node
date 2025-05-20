@@ -10,7 +10,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const TODAY = new Date();
 const { google } = require('googleapis');
 // const KEY_FILE = './google.json';
-const {KEY_FILE} = require('/app-configs/google.json');
+const {} = require('/app-configs/google.json');
 const bot = new TelegramBot(token, {polling: true});
 
 async function appendRow(spreadsheetId, range, values) {
@@ -386,7 +386,8 @@ async function checkUserPhoneAndName(chatId) {
 
     return userInfo;
   } catch (err) {
-    console.error('Ошибка в findUserInfo:', err);
+    console.error('Ошибка в checkUserPhoneAndName:', KEY_FILE);
+    console.error('Ошибка в checkUserPhoneAndName:', err);
     throw err;
   }
 }
