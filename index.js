@@ -10,6 +10,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const TODAY = new Date();
 const { google } = require('googleapis');
 const KEY_FILE = '/app-configs/google.json';
+// const KEY_FILE = './google.json';
 const bot = new TelegramBot(token, {polling: true});
 
 async function appendRow(spreadsheetId, range, values) {
@@ -965,7 +966,7 @@ const sendText = async(chatId, text, replyMarkup = null) => {
 }
 
 const editMessage = async(chatId, messageId, text, replyMarkup = null) => {
-  bot.editMessageText(text, {chat_id: chatId, message_id: messageId, reply_markup: replyMarkup, parse_mode: 'HTML', link_preview_options: {is_disabled: true},} )
+  bot.editMessageText(text, {chat_id: chatId, message_id: messageId, reply_markup: replyMarkup, parse_mode: 'HTML', disable_web_page_preview: true, link_preview_options: {is_disabled: true},} )
 }
 
 const sendDocument = async(chatId, caption, docUrl) => {
@@ -1025,7 +1026,7 @@ bot.on('message', async (msg) => {
       if (userName) {
         let link = await getSpreadsheetLink()
         let messageToGreet = `Салют, ${userName}!\nИди по ссылке в <a href="${link}">гугл-таблицу</a>, чтобы прикинуть кий к носу!\n\nЕсть подходящий слот — возвращайся сюда и тыкай в кнопку, иначе можешь попытать удачу в живой очереди на месте.\n\nТакже ознакомься с правилами нашего клуба: /rules`
-        await bot.sendMessage(chat_id, messageToGreet, {parse_mode: 'HTML', link_preview_options: {is_disabled: true}, reply_markup: BUTTONS_BEGIN_BOOKING});
+        await bot.sendMessage(chat_id, messageToGreet, {parse_mode: 'HTML', no_webpage:true, disable_web_page_preview:true, link_preview_options: {is_disabled: true}, reply_markup: BUTTONS_BEGIN_BOOKING});
       } else {
         let picurl = 'https://i.imgur.com/Q12DNEr.mp4'
         
@@ -1041,6 +1042,13 @@ bot.on('message', async (msg) => {
       let rulesMessage5 =`- к нам нельзя приносить свою еду и напитки`
       let summedRulesMEssage = `${rulesMessage1}${rulesMessage2}${rulesMessage3}${rulesMessage4}${rulesMessage5}`
       await bot.sendMessage(chat_id, summedRulesMEssage);
+    }
+
+    if (messageText === '/about') {
+      let tgChannelLink = `<a href="https://t.me/kiks_bi">tg-канал</a>`
+      let igLink = `<a href="https://www.instagram.com/kiks_bi/">ig</a>`
+      let aboutMessage = `Kiks — это бильярдный клуб в кластере Дом Бита. У нас 5 девятифутовых столов для игры в американский пул и бар с пивом и сидрами. Cтоимость игры: \n- дневное время по будням до 18:00, в выходные до 16:00 - 600 р/час\n- вечернее время - 1200 р/час \n\nВремя работы 12:00 - 02:00\n\nАдрес: Марата 56-58/29б\n\n${tgChannelLink}\n${igLink}\n\nЕсли остался важный вопрос: @kiks_book`
+      await bot.sendMessage(chat_id, aboutMessage, {parse_mode: 'HTML', no_webpage:true,disable_web_page_preview:true, link_preview_options: {is_disabled: true}});
     }
 
     if (messageText === '/check') {
@@ -1067,7 +1075,7 @@ bot.on('message', async (msg) => {
         let link = await getSpreadsheetLink()
         let messageToGreet = `Салют, ${userName}!\nИди по ссылке в <a href="${link}">гугл-таблицу</a>, чтобы прикинуть кий к носу!\n\nЕсть подходящий слот — возвращайся сюда и тыкай в кнопку, иначе можешь попытать удачу в живой очереди на месте. \n\nТакже ознакомься с правилами нашего клуба: /rules`
         // sendText(chat_id, messageToGreet, BUTTONS_BEGIN_BOOKING )  
-        await bot.sendMessage(chat_id, messageToGreet, {parse_mode: 'HTML', link_preview_options: {is_disabled: true}, reply_markup: BUTTONS_BEGIN_BOOKING});
+        await bot.sendMessage(chat_id, messageToGreet, {parse_mode: 'HTML', disable_web_page_preview:true, link_preview_options: {is_disabled: true}, reply_markup: BUTTONS_BEGIN_BOOKING});
       } else {
         sendText(chat_id, 'Извини, такое имя не подходит. Попробуй другое') 
       }
@@ -1164,7 +1172,7 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookTime = tableNumDateTime.split('__')[2]
     let hours = 0.5;
 
-    let timeButtons = getUniqueTimeButtonsForTable(bookDate, parseInt(tableNum), hours, bookTime )
+    let timeButtons = await getUniqueTimeButtonsForTable(bookDate, parseInt(tableNum), hours, bookTime )
     timeButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
     editMessage(chat_id, callbackQuery.message.message_id, `Отлично! Стол №${tableNum} на дату ${bookDate}.\nВо сколько хочешь начать играть?`, timeButtons)
   }
@@ -1187,7 +1195,7 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookTime = tableNumDateTime.split('__')[2]
     let firstBookTime = tableNumDateTime.split('__')[3]
 
-    let hoursButtons = getHoursButtons(bookDate, parseInt(tableNum), bookTime, firstBookTime)
+    let hoursButtons = await getHoursButtons(bookDate, parseInt(tableNum), bookTime, firstBookTime)
     hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
     editMessage(chat_id, callbackQuery.message.message_id, `Теперь выбери продолжительность игры`, hoursButtons)
   }
