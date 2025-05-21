@@ -320,10 +320,6 @@ function formatDate(date) {
   return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
 }
 
-const BUTTONS_BRON = {
-  "inline_keyboard": generateDateButtons()
-}
-
 const BUTTONS_BEGIN_BOOKING = {
   "inline_keyboard": [
     [
@@ -1095,6 +1091,10 @@ bot.on('callback_query', async (callbackQuery) => {
   messageText = callbackQuery.data
   userNickName = callbackQuery.message.chat.username
 
+  const BUTTONS_BRON = {
+    "inline_keyboard": generateDateButtons()
+  }
+
   if (messageText === 'stol_bron') {
     await sendText(chat_id, `Выбери дату, на которую хочешь забронировать стол`, BUTTONS_BRON)
   }
@@ -1199,6 +1199,7 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookTime = tableNumDateTime.split('__')[2]
     let hours = tableNumDateTime.split('__')[3]
 
+    editMessage(chat_id, callbackQuery.message.message_id, `Подожди чуть-чуть, выполняется бронирование`)
     if(checkFirstBooking(chat_id, bookDate, tableNum, bookTime, hours)) {
       let {userName} = await checkUserPhoneAndName(chat_id)
       if (userName) {
