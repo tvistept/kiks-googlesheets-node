@@ -679,7 +679,6 @@ async function getUniqueTimeButtonsForTable(sheetName, tableNum, hours, time = n
       [`table${tableNum}`]: bookingMap.get(startHour) || ''
     };
   });
-  console.log(arrSorted)
 
   if (time ) {
     const index = arrSorted.findIndex(object => {
@@ -852,7 +851,6 @@ async function getHoursButtons(bookingDate, tableNum, bookingTime, firstBookTime
       [`table${tableNum}`]: bookingMap.get(startHour) || ''
     };
   });
-  console.log(arrSorted)
 
   let availableSlotCnt = 2;
   if (firstBookTime) {
