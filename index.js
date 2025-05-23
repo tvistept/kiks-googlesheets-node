@@ -2,11 +2,11 @@ const TelegramBot = require('node-telegram-bot-api');
 const { google } = require('googleapis');
 const { tg_token, google_worksheet_id, google_sheet_id } = require('/app-configs/tokens.js');
 // const { tg_token, google_worksheet_id, google_sheet_id } = require('./tokens.js');
+const KEY_FILE = '/app-configs/google.json';
+// const KEY_FILE = './google.json';
 const TG_TOKEN = tg_token;
 const USER_SHEET_ID = google_sheet_id;
 const SERVICE_SHEET_ID = google_worksheet_id;
-const KEY_FILE = '/app-configs/google.json';
-// const KEY_FILE = './google.json';
 const bot = new TelegramBot(TG_TOKEN, {polling: true});
 
 //единый клиент для всех запросов
@@ -23,6 +23,12 @@ let sheetsClient;
     auth: await auth.getClient() 
   });
 })();
+
+const dateFormat = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric'
+});
 
 async function appendRow(spreadsheetId, range, values) {
   const resource = { values };
@@ -284,15 +290,23 @@ function convertedTimes (time) {
   return toReturn
 }  
 
+// function formatDate(date) {
+//   const pad = n => n.toString().padStart(2, '0');
+//   const day = pad(date.getDate());
+//   const month = pad(date.getMonth() + 1); // Месяцы начинаются с 0
+//   const year = date.getFullYear();
+//   const hours = pad(date.getHours());
+//   const minutes = pad(date.getMinutes());
+//   const seconds = pad(date.getSeconds());
+//   return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+// }
+
 function formatDate(date) {
   const pad = n => n.toString().padStart(2, '0');
-  const day = pad(date.getDate());
-  const month = pad(date.getMonth() + 1); // Месяцы начинаются с 0
-  const year = date.getFullYear();
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
-  const seconds = pad(date.getSeconds());
-  return `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+  const [day, month, year] = dateFormat.format(date).split('.');
+  const time = [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map(pad).join(':');
+  return `${day}.${month}.${year} ${time}`;
 }
 
 const BUTTONS_BEGIN_BOOKING = {
@@ -531,19 +545,14 @@ async function getTablesInfoOld(filteredBookings, bookingDate) {
 
 function generateTimeSlots(dt) {
   const startHour = isWeekend(dt) ? 12 : 14;
-  const timeSlots = [];
-  
+  const slots = [];
+  // Генерация слотов до полуночи
   for (let hour = startHour; hour < 24; hour++) {
-    const nextHour = hour + 1;
-    const timeSlot = `${hour.toString().padStart(2, '0')}:00-${nextHour.toString().padStart(2, '0')}:00`;
-    timeSlots.push(timeSlot);
+    slots.push(`${hour.toString().padStart(2, '0')}:00-${(hour + 1).toString().padStart(2, '0')}:00`);
   }
-  
-  // Добавляем часы после полуночи (00:00-01:00, 01:00-02:00)
-  timeSlots.push('00:00-01:00');
-  timeSlots.push('01:00-02:00');
-  
-  return timeSlots;
+  // Добавляем ночные слоты
+  slots.push('00:00-01:00', '01:00-02:00');
+  return slots;
 }
 
 function checkNextSlots(timeArr, bookTime, tableName) {
@@ -1214,177 +1223,193 @@ bot.on('message', async (msg) => {
 });
 
 bot.on('callback_query', async (callbackQuery) => {
-  let chat_id = callbackQuery.message.chat.id
-  let user = callbackQuery.message.chat.first_name
-  let messageText = callbackQuery.data
-  let userNickName = callbackQuery.message.chat.username
-  let messageDate = new Date()
-  const values = [[chat_id, user, messageText, formatDate(messageDate), userNickName]]; 
-  appendRow(SERVICE_SHEET_ID, 'Messages', values);
+  try {
+    let chat_id = callbackQuery.message.chat.id
+    let user = callbackQuery.message.chat.first_name
+    let messageText = callbackQuery.data
+    let userNickName = callbackQuery.message.chat.username
+    let messageDate = new Date()
 
-  const BUTTONS_BRON = {
-    "inline_keyboard": generateDateButtons()
-  }
+    const values = [[chat_id, user, messageText, formatDate(messageDate), userNickName]]; 
+    appendRow(SERVICE_SHEET_ID, 'Messages', values);
 
-  if (messageText === 'stol_bron') {
-    await sendText(chat_id, `Выбери дату, на которую хочешь забронировать стол`, BUTTONS_BRON)
-  }
+    const BUTTONS_BRON = {
+      "inline_keyboard": generateDateButtons()
+    }
 
-  if (messageText === 'back_to_stol_bron') {
-    editMessage(chat_id, callbackQuery.message.message_id, `Выбери дату, на которую хочешь забронировать стол` , BUTTONS_BRON)
-  }
+    if (messageText === 'stol_bron') {
+      await sendText(chat_id, `Выбери дату, на которую хочешь забронировать стол`, BUTTONS_BRON)
+    }
 
-  if (messageText === 'back_to_stol_bron_from_delete') {
-    deleteMessage(chat_id, callbackQuery.message.message_id )
-    sendText(chat_id, `Выбери дату, на которую хочешь забронировать стол`, BUTTONS_BRON)
-  }
+    if (messageText === 'back_to_stol_bron') {
+      editMessage(chat_id, callbackQuery.message.message_id, `Выбери дату, на которую хочешь забронировать стол` , BUTTONS_BRON)
+    }
 
-  if (messageText.includes('dayChosen')) {
-    editMessage(chat_id, callbackQuery.message.message_id, `Загружаю актуальную информацию`)
-    console.time('Execution Time');
-    dateChoosen = messageText.replace('dayChosen_','')
-    let isNotHidden = await checkSheetHidden(dateChoosen)
-    if (isNotHidden) {
-      const bookingsByDate = await getBookingsByDate(dateChoosen)
-      const userBookings =  bookingsByDate.filter((el) => { return el.chat_id === chat_id; });
-      if (userBookings.length === 0) {
-        let tableInfo = await getTablesInfo(dateChoosen)
-        editMessage(chat_id, callbackQuery.message.message_id, `Актуальная информация по столам за дату ${dateChoosen}:\n${tableInfo.message}` , tableInfo.buttons)
-      } else if (userBookings.length === 1) {
-        let tables = ['3','4','5','6']
-        const booking_id = userBookings[0].booking_id + '';
-        let table = booking_id[booking_id.length - 1]
-        let remainingTables = tables.filter((elem) => elem !== table);
-        let availableTables = remainingTables.map( table => { return checkOtherTable(dateChoosen, table, userBookings[0].booking_time, bookingsByDate)}).filter( tableObj => tableObj.isAvailable == true)
-        if(availableTables.length > 0) {
-          const BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS = {
-            "inline_keyboard": []
+    if (messageText === 'back_to_stol_bron_from_delete') {
+      deleteMessage(chat_id, callbackQuery.message.message_id )
+      sendText(chat_id, `Выбери дату, на которую хочешь забронировать стол`, BUTTONS_BRON)
+    }
+
+    if (messageText.includes('dayChosen')) {
+      editMessage(chat_id, callbackQuery.message.message_id, `Загружаю актуальную информацию`)
+      console.time('Execution Time');
+      dateChoosen = messageText.replace('dayChosen_','')
+      let isNotHidden = await checkSheetHidden(dateChoosen)
+      if (isNotHidden) {
+        const bookingsByDate = await getBookingsByDate(dateChoosen)
+        const userBookings =  bookingsByDate.filter((el) => { return el.chat_id === chat_id; });
+        if (userBookings.length === 0) {
+          let tableInfo = await getTablesInfo(dateChoosen)
+          editMessage(chat_id, callbackQuery.message.message_id, `Актуальная информация по столам за дату ${dateChoosen}:\n${tableInfo.message}` , tableInfo.buttons)
+        } else if (userBookings.length === 1) {
+          let tables = ['3','4','5','6']
+          const booking_id = userBookings[0].booking_id + '';
+          let table = booking_id[booking_id.length - 1]
+          let remainingTables = tables.filter((elem) => elem !== table);
+          let availableTables = remainingTables.map( table => { return checkOtherTable(dateChoosen, table, userBookings[0].booking_time, bookingsByDate)}).filter( tableObj => tableObj.isAvailable == true)
+          if(availableTables.length > 0) {
+            const BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS = {
+              "inline_keyboard": []
+            }
+            availableTables.forEach(tableObj => {
+              BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS.inline_keyboard.push(
+                [{text: `стол ${tableObj.table}`, callback_data: `secondTableChosen_${tableObj.table}__${dateChoosen}__${userBookings[0].booking_time}`}]
+              )
+            })
+            BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS.inline_keyboard.push([ {text: '<< Назад', callback_data: 'back_to_stol_bron'} ] )
+            editMessage(chat_id, callbackQuery.message.message_id, `На ${dateChoosen} ты можешь забронировать ещё один стол. Выбери, где хочешь играть` , BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS);
+          } else {
+            editMessage(chat_id, callbackQuery.message.message_id, `У тебя уже есть одна бронь на ${dateChoosen}, а на соседних столах нет свободных слотов` , BUTTONS_BACK_ONE_STEP)
           }
-          availableTables.forEach(tableObj => {
-            BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS.inline_keyboard.push(
-              [{text: `стол ${tableObj.table}`, callback_data: `secondTableChosen_${tableObj.table}__${dateChoosen}__${userBookings[0].booking_time}`}]
-            )
-          })
-          BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS.inline_keyboard.push([ {text: '<< Назад', callback_data: 'back_to_stol_bron'} ] )
-          editMessage(chat_id, callbackQuery.message.message_id, `На ${dateChoosen} ты можешь забронировать ещё один стол. Выбери, где хочешь играть` , BUTTONS_BOOK_ANOTHER_TABLE_FOR_TWO_HOURS);
         } else {
-          editMessage(chat_id, callbackQuery.message.message_id, `У тебя уже есть одна бронь на ${dateChoosen}, а на соседних столах нет свободных слотов` , BUTTONS_BACK_ONE_STEP)
-        }
+          editMessage(chat_id, callbackQuery.message.message_id, `Извини, на ${dateChoosen} у тебя уже есть две брони, выбери другую дату` , BUTTONS_BACK_ONE_STEP)
+        } 
       } else {
-        editMessage(chat_id, callbackQuery.message.message_id, `Извини, на ${dateChoosen} у тебя уже есть две брони, выбери другую дату` , BUTTONS_BACK_ONE_STEP)
-      } 
-    } else {
-      editMessage(chat_id, callbackQuery.message.message_id, `На эту дату забронировать нельзя(` , BUTTONS_BACK_ONE_STEP)
+        editMessage(chat_id, callbackQuery.message.message_id, `На эту дату забронировать нельзя(` , BUTTONS_BACK_ONE_STEP)
+      }
+      console.timeEnd('Execution Time');
     }
-    console.timeEnd('Execution Time');
-  }
 
-  if (messageText.includes('tableChosen')) {
-    let tableNumAndDate = messageText.replace('tableChosen_','')
-    let tableNum = tableNumAndDate.split('__')[0]
-    let bookDate = tableNumAndDate.split('__')[1]
-    let hours = 0.5;
+    if (messageText.includes('tableChosen')) {
+      let tableNumAndDate = messageText.replace('tableChosen_','')
+      let tableNum = tableNumAndDate.split('__')[0]
+      let bookDate = tableNumAndDate.split('__')[1]
+      let hours = 0.5;
 
-    let timeButtons = await getUniqueTimeButtonsForTableNew(bookDate, parseInt(tableNum), hours )
-    timeButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
-    editMessage(chat_id, callbackQuery.message.message_id, `Отлично! Стол №${tableNum} на дату ${bookDate}.\nВо сколько хочешь начать играть?`, timeButtons)
-  }
+      let timeButtons = await getUniqueTimeButtonsForTableNew(bookDate, parseInt(tableNum), hours )
+      timeButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
+      editMessage(chat_id, callbackQuery.message.message_id, `Отлично! Стол №${tableNum} на дату ${bookDate}.\nВо сколько хочешь начать играть?`, timeButtons)
+    }
 
-  if (messageText.includes('secondTableChosen')) {
-    let tableNumDateTime = messageText.replace('secondTableChosen_','')
-    let tableNum = tableNumDateTime.split('__')[0]
-    let bookDate = tableNumDateTime.split('__')[1]
-    let bookTime = tableNumDateTime.split('__')[2]
-    let hours = 0.5;
+    if (messageText.includes('secondTableChosen')) {
+      let tableNumDateTime = messageText.replace('secondTableChosen_','')
+      let tableNum = tableNumDateTime.split('__')[0]
+      let bookDate = tableNumDateTime.split('__')[1]
+      let bookTime = tableNumDateTime.split('__')[2]
+      let hours = 0.5;
 
-    let timeButtons = await getUniqueTimeButtonsForTableNew(bookDate, parseInt(tableNum), hours, bookTime )
-    timeButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
-    editMessage(chat_id, callbackQuery.message.message_id, `Отлично! Стол №${tableNum} на дату ${bookDate}.\nВо сколько хочешь начать играть?`, timeButtons)
-  }
+      let timeButtons = await getUniqueTimeButtonsForTableNew(bookDate, parseInt(tableNum), hours, bookTime )
+      timeButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
+      editMessage(chat_id, callbackQuery.message.message_id, `Отлично! Стол №${tableNum} на дату ${bookDate}.\nВо сколько хочешь начать играть?`, timeButtons)
+    }
 
-  if (messageText.includes('timeChosen')) {
-    let tableNumDateTime = messageText.replace('timeChosen_','')
-    let tableNum = tableNumDateTime.split('__')[0]
-    let bookDate = tableNumDateTime.split('__')[1]
-    let bookTime = tableNumDateTime.split('__')[2]
+    if (messageText.includes('timeChosen')) {
+      let tableNumDateTime = messageText.replace('timeChosen_','')
+      let tableNum = tableNumDateTime.split('__')[0]
+      let bookDate = tableNumDateTime.split('__')[1]
+      let bookTime = tableNumDateTime.split('__')[2]
 
-    let hoursButtons = await getHoursButtonsNew(bookDate, parseInt(tableNum), bookTime)
-    
-    hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `tableChosen_${tableNum}__${bookDate}`}, ],)
-    editMessage(chat_id, callbackQuery.message.message_id, `Теперь выбери продолжительность игры`, hoursButtons)
-  }
+      let hoursButtons = await getHoursButtonsNew(bookDate, parseInt(tableNum), bookTime)
+      
+      hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `tableChosen_${tableNum}__${bookDate}`}, ],)
+      editMessage(chat_id, callbackQuery.message.message_id, `Теперь выбери продолжительность игры`, hoursButtons)
+    }
 
-  if (messageText.includes('timeSecondBookChosen')) {
-    let tableNumDateTime = messageText.replace('timeSecondBookChosen_','')
-    let tableNum = tableNumDateTime.split('__')[0]
-    let bookDate = tableNumDateTime.split('__')[1]
-    let bookTime = tableNumDateTime.split('__')[2]
-    let firstBookTime = tableNumDateTime.split('__')[3]
+    if (messageText.includes('timeSecondBookChosen')) {
+      let tableNumDateTime = messageText.replace('timeSecondBookChosen_','')
+      let tableNum = tableNumDateTime.split('__')[0]
+      let bookDate = tableNumDateTime.split('__')[1]
+      let bookTime = tableNumDateTime.split('__')[2]
+      let firstBookTime = tableNumDateTime.split('__')[3]
 
-    let hoursButtons = await getHoursButtonsNew(bookDate, parseInt(tableNum), bookTime, firstBookTime)
-    hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
-    editMessage(chat_id, callbackQuery.message.message_id, `Теперь выбери продолжительность игры`, hoursButtons)
-  }
+      let hoursButtons = await getHoursButtonsNew(bookDate, parseInt(tableNum), bookTime, firstBookTime)
+      hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
+      editMessage(chat_id, callbackQuery.message.message_id, `Теперь выбери продолжительность игры`, hoursButtons)
+    }
 
-  if (messageText.includes('hoursChosen')) {
-    let tableNumDateTime = messageText.replace('hoursChosen_','')
-    let tableNum = tableNumDateTime.split('__')[0]
-    let bookDate = tableNumDateTime.split('__')[1]
-    let bookTime = tableNumDateTime.split('__')[2]
-    let hours = tableNumDateTime.split('__')[3]
+    if (messageText.includes('hoursChosen')) {
+      let tableNumDateTime = messageText.replace('hoursChosen_','')
+      let tableNum = tableNumDateTime.split('__')[0]
+      let bookDate = tableNumDateTime.split('__')[1]
+      let bookTime = tableNumDateTime.split('__')[2]
+      let hours = tableNumDateTime.split('__')[3]
 
-    editMessage(chat_id, callbackQuery.message.message_id, `Подожди чуть-чуть, выполняется бронирование`)
-    if(checkFirstBooking(chat_id, bookDate, tableNum, bookTime, hours)) {
-      let {userName} = await checkUserPhoneAndName(chat_id)
-      if (userName) {
-        let bookFinished = await bookTable(bookDate, bookTime, tableNum, hours, userName, chat_id)
-        if (bookFinished) {
-          let bookingId = generateBookingId(chat_id, bookDate, bookTime, tableNum)
-          let bookingValues = [[chat_id, user, userName, bookDate, hours, bookingId, bookTime,null, null, callbackQuery.message.message_id]];
-          appendRow(SERVICE_SHEET_ID, 'userBooking', bookingValues);
-          let sheetLink = await getSheetLink(bookDate)
+      editMessage(chat_id, callbackQuery.message.message_id, `Подожди чуть-чуть, выполняется бронирование`)
+      if(checkFirstBooking(chat_id, bookDate, tableNum, bookTime, hours)) {
+        let {userName} = await checkUserPhoneAndName(chat_id)
+        if (userName) {
+          let bookFinished = await bookTable(bookDate, bookTime, tableNum, hours, userName, chat_id)
+          if (bookFinished) {
+            let bookingId = generateBookingId(chat_id, bookDate, bookTime, tableNum)
+            let bookingValues = [[chat_id, user, userName, bookDate, hours, bookingId, bookTime,null, null, callbackQuery.message.message_id]];
+            appendRow(SERVICE_SHEET_ID, 'userBooking', bookingValues);
+            let sheetLink = await getSheetLink(bookDate)
 
-          const BUTTONS_BOOK_READY = {
-            "inline_keyboard": [
-              [
-                {text: 'проверить бронь', url:sheetLink},
-              ],
-              [
-                {text: 'забронировать еще!', callback_data: 'stol_bron'},
-              ],
-              [
-                {text: 'отменить бронь', callback_data: `deleteBron_${tableNum}__${bookDate}__${bookTime}__${hours}`},
-              ],
-            ]
+            const BUTTONS_BOOK_READY = {
+              "inline_keyboard": [
+                [
+                  {text: 'проверить бронь', url:sheetLink},
+                ],
+                [
+                  {text: 'забронировать еще!', callback_data: 'stol_bron'},
+                ],
+                [
+                  {text: 'отменить бронь', callback_data: `deleteBron_${tableNum}__${bookDate}__${bookTime}__${hours}`},
+                ],
+              ]
+            }
+
+            let prefix = parseFloat(hours) > 1 ? 'часа' : 'час';
+            infoMessage = `\nОбщая информация:\n• ${bookDate}\n• ${bookTime}\n• стол №${tableNum}\n• ${hours} ${prefix}`
+            let infoMessage1 = `У нас есть кухня (до 23:00) и пивной крафтовый бар. Просим не приносить свою еду и напитки.`
+            let infoMessage2 = `P.S. Если ты опаздываешь, напиши <a href="https://t.me/kiks_book">Киксу</a>, он держит бронь только 15 минут.`
+          
+            editMessage(chat_id, callbackQuery.message.message_id, `${userName}, это успех! Можешь проверить бронь, кликнув по кнопке.${infoMessage}\n\n${infoMessage1}\n\n${infoMessage2}`, BUTTONS_BOOK_READY)
+          } else {
+            editMessage(chat_id, callbackQuery.message.message_id, `${userName}, кажется, кто-то опередил тебя и забронировал стол на это время первым. Попробуй обновить актуальную информацию по столам и выбрать другое время`, BUTTONS_RETURN_BACK)
           }
+        } 
+      } else {
+        editMessage(chat_id, callbackQuery.message.message_id, `Хорошая попытка, но мы это продумали!\nВернись и забронируй стол по-честному!`, BUTTONS_RETURN_BACK)
+      }
+    }
 
-          let prefix = parseFloat(hours) > 1 ? 'часа' : 'час';
-          infoMessage = `\nОбщая информация:\n• ${bookDate}\n• ${bookTime}\n• стол №${tableNum}\n• ${hours} ${prefix}`
-          let infoMessage1 = `У нас есть кухня (до 23:00) и пивной крафтовый бар. Просим не приносить свою еду и напитки.`
-          let infoMessage2 = `P.S. Если ты опаздываешь, напиши <a href="https://t.me/kiks_book">Киксу</a>, он держит бронь только 15 минут.`
-        
-          editMessage(chat_id, callbackQuery.message.message_id, `${userName}, это успех! Можешь проверить бронь, кликнув по кнопке.${infoMessage}\n\n${infoMessage1}\n\n${infoMessage2}`, BUTTONS_BOOK_READY)
-        } else {
-          editMessage(chat_id, callbackQuery.message.message_id, `${userName}, кажется, кто-то опередил тебя и забронировал стол на это время первым. Попробуй обновить актуальную информацию по столам и выбрать другое время`, BUTTONS_RETURN_BACK)
-        }
-      } 
-    } else {
-      editMessage(chat_id, callbackQuery.message.message_id, `Хорошая попытка, но мы это продумали!\nВернись и забронируй стол по-честному!`, BUTTONS_RETURN_BACK)
+    if (messageText.includes('deleteBron')) {
+      let tableNumDateTime = messageText.replace('deleteBron_','')
+      let tableNum = tableNumDateTime.split('__')[0]
+      let bookDate = tableNumDateTime.split('__')[1]
+      let bookTime = tableNumDateTime.split('__')[2]
+      let bookHours = tableNumDateTime.split('__')[3]
+      let bookingId = generateBookingId(chat_id, bookDate, bookTime, tableNum)
+
+      deleteBooking(bookDate, bookTime, tableNum, parseFloat(bookHours), chat_id)
+      deleteUserBookingRow(bookingId)
+      editMessage(chat_id, callbackQuery.message.message_id, `Ты отменил бронь на ${bookDate} с ${bookTime}`, BUTTONS_RETURN_BACK_FROM_DELETION)
+    }
+  } catch (error) {
+    console.error('Callback error:', error);
+    try {
+      await bot.answerCallbackQuery(callbackQuery.id, {
+        text: 'Произошла ошибка, попробуйте позже',
+        show_alert: true
+      });
+    } catch (e) {
+      console.error('Failed to send error to user:', e);
+    }
+  } finally {
+    // Принудительно освобождаем ресурсы
+    if (callbackQuery.message) {
+      callbackQuery.message = null;
     }
   }
-
-  if (messageText.includes('deleteBron')) {
-    let tableNumDateTime = messageText.replace('deleteBron_','')
-    let tableNum = tableNumDateTime.split('__')[0]
-    let bookDate = tableNumDateTime.split('__')[1]
-    let bookTime = tableNumDateTime.split('__')[2]
-    let bookHours = tableNumDateTime.split('__')[3]
-    let bookingId = generateBookingId(chat_id, bookDate, bookTime, tableNum)
-
-    deleteBooking(bookDate, bookTime, tableNum, parseFloat(bookHours), chat_id)
-    deleteUserBookingRow(bookingId)
-    editMessage(chat_id, callbackQuery.message.message_id, `Ты отменил бронь на ${bookDate} с ${bookTime}`, BUTTONS_RETURN_BACK_FROM_DELETION)
-  }
-  
-
 });
