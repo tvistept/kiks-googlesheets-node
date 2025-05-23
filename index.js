@@ -9,17 +9,24 @@ const KEY_FILE = '/app-configs/google.json';
 // const KEY_FILE = './google.json';
 const bot = new TelegramBot(TG_TOKEN, {polling: true});
 
+//единый клиент для всех запросов
+const auth = new google.auth.GoogleAuth({
+  keyFile: KEY_FILE,
+  scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+});
+
+// Инициализация клиента при старте приложения
+let sheetsClient;
+(async function init() {
+  sheetsClient = google.sheets({ 
+    version: 'v4', 
+    auth: await auth.getClient() 
+  });
+})();
 
 async function appendRow(spreadsheetId, range, values) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
   const resource = { values };
-  const response = await sheets.spreadsheets.values.append({
+  const response = await sheetsClient.spreadsheets.values.append({
     spreadsheetId,
     range,
     valueInputOption: 'RAW', // Можно использовать RAW или USER_ENTERED
@@ -30,18 +37,9 @@ async function appendRow(spreadsheetId, range, values) {
 }
 
 async function writeToCell(spreadsheetId, range, value) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
   const values = [ [value] ];
-
   const resource = { values };
-
-  const response = await sheets.spreadsheets.values.update({
+  const response = await sheetsClient.spreadsheets.values.update({
     spreadsheetId,
     range,
     valueInputOption: 'USER_ENTERED', // или 'RAW'
@@ -154,18 +152,9 @@ async function unmergeCells(sheets, range) {
 }
 
 async function writeToRange(spreadsheetId, range, value, unmerge = false) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
   const values = [ value ];
-
   const resource = { values };
-
-  const response = await sheets.spreadsheets.values.update({
+  const response = await sheetsClient.spreadsheets.values.update({
     spreadsheetId,
     range,
     valueInputOption: 'USER_ENTERED', // или 'RAW'
@@ -174,22 +163,16 @@ async function writeToRange(spreadsheetId, range, value, unmerge = false) {
 
   console.log(`${response.data.updatedCells} ячеек обновлено.`);
   if (unmerge) {
-    unmergeCells(sheets, range);
+    unmergeCells(sheetsClient, range);
   } else {
-    mergeCells(sheets, range);
+    mergeCells(sheetsClient, range);
   }
 }
 
 async function getSheetLink(sheetName) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  const authClient = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: authClient });
   const spreadsheetId = USER_SHEET_ID;
   // Получаем список листов и их свойства
-  const res = await sheets.spreadsheets.get({ spreadsheetId });
+  const res = await sheetsClient.spreadsheets.get({ spreadsheetId });
   const sheet = res.data.sheets.find(s => s.properties.title === sheetName);
 
   if (!sheet) {
@@ -202,24 +185,17 @@ async function getSheetLink(sheetName) {
 }
 
 async function deleteUserBookingRow(bookingId) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  const authClient = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: authClient });
-
   const spreadsheetId = SERVICE_SHEET_ID;
   const sheetName = 'userBooking';
   const valueToDelete = bookingId;
 
   // Получаем sheetId
-  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const spreadsheet = await sheetsClient.spreadsheets.get({ spreadsheetId });
   const sheet = spreadsheet.data.sheets.find(s => s.properties.title === sheetName);
   const sheetId = sheet.properties.sheetId;
 
   // Получаем все строки
-  const res = await sheets.spreadsheets.values.get({
+  const res = await sheetsClient.spreadsheets.values.get({
     spreadsheetId,
     range: sheetName,
   });
@@ -235,7 +211,7 @@ async function deleteUserBookingRow(bookingId) {
   }
 
   if (rowIndexToDelete !== null) {
-    await sheets.spreadsheets.batchUpdate({
+    await sheetsClient.spreadsheets.batchUpdate({
       spreadsheetId,
       resource: {
         requests: [
@@ -353,15 +329,8 @@ const BUTTONS_RETURN_BACK_FROM_DELETION = {
 
 async function checkUserPhoneAndName(chatId) {
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: KEY_FILE,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
-
     // 1. Получаем все данные из листа
-    const response = await sheets.spreadsheets.values.get({
+    const response = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: SERVICE_SHEET_ID,
       range: 'uniqueUsers!A:C', // Получаем все колонки для поиска
     });
@@ -380,7 +349,6 @@ async function checkUserPhoneAndName(chatId) {
 
     return userInfo;
   } catch (err) {
-    console.error('Ошибка в checkUserPhoneAndName:', KEY_FILE);
     console.error('Ошибка в checkUserPhoneAndName:', err);
     throw err;
   }
@@ -388,15 +356,8 @@ async function checkUserPhoneAndName(chatId) {
 
 async function getSpreadsheetLink() {
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: KEY_FILE,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
-
     // Получаем метаданные таблицы
-    const response = await sheets.spreadsheets.get({
+    const response = await sheetsClient.spreadsheets.get({
       spreadsheetId: USER_SHEET_ID,
       fields: 'spreadsheetUrl', // Запрашиваем только URL
     });
@@ -411,15 +372,8 @@ async function getSpreadsheetLink() {
 
 async function checkSheetHidden(sheetName) {
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: KEY_FILE, 
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
-
     // Получаем метаданные таблицы
-    const spreadsheet = await sheets.spreadsheets.get({
+    const spreadsheet = await sheetsClient.spreadsheets.get({
       spreadsheetId: USER_SHEET_ID,
       fields: 'sheets(properties(sheetId,title,hidden))',
     });
@@ -444,16 +398,8 @@ async function checkSheetHidden(sheetName) {
 
 async function getBookingsByDate(bookingDate) {
   try {
-    // Аутентификация
-    const auth = new google.auth.GoogleAuth({
-      keyFile: KEY_FILE,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: 'v4', auth: client });
-
     const SHEET_NAME = 'userBooking';
-    const response = await sheets.spreadsheets.values.get({
+    const response = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: SERVICE_SHEET_ID,
       range: `${SHEET_NAME}!A2:G`, 
     });
@@ -1050,70 +996,6 @@ async function deleteBooking(bookDate, bookTime, tableNum, hours) {
     }
 }
 
-async function getRangeValues(sheetName) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-
-  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
-
-  const spreadsheetId = USER_SHEET_ID;
-  const range = `${sheetName}!C1:N7`;
-
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range,
-  });
-
-  console.log('Значения ячеек:', res.data.values);
-  return res.data.values;
-}
-
-async function getMergedCellValues(sheetName) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
-  const spreadsheetId = USER_SHEET_ID;
-  let secondColumn = isWeekend(dateFromString(sheetName)) ? `P` : `N`;
-  const range = `C4:${secondColumn}7`;
-
-  // Получаем структуру листа с данными о слияниях
-  const sheetInfo = await sheets.spreadsheets.get({
-    spreadsheetId,
-    ranges: [`${sheetName}!${range}`],
-    includeGridData: true,
-  });
-
-  const sheet = sheetInfo.data.sheets[0];
-  const merges = sheet.merges || [];
-  const grid = sheet.data[0].rowData || [];
-
-  // Собираем значения в двумерный массив
-  const values = grid.map(row =>
-    (row.values || []).map(cell => (cell.formattedValue !== undefined ? cell.formattedValue : ''))
-  );
-
-  // Заполняем объединённые ячейки значениями из верхней левой
-  merges.forEach(merge => {
-    const startRow = merge.startRowIndex - grid[0].startRow || 0;
-    const endRow = merge.endRowIndex - grid[0].startRow || 0;
-    const startCol = merge.startColumnIndex - grid[0].startColumn || 0;
-    const endCol = merge.endColumnIndex - grid[0].startColumn || 0;
-
-    const value = values[startRow][startCol];
-    for (let r = startRow; r < endRow; r++) {
-      for (let c = startCol; c < endCol; c++) {
-        values[r][c] = value;
-      }
-    }
-  });
-
-  return values;
-}
-
 function generateMessageForTable(times) {
   function isDecimal(num) {
     return num % 1 !== 0;
@@ -1144,17 +1026,12 @@ function generateMessageForTable(times) {
 }
 
 async function getTablesInfo(sheetName) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
   const spreadsheetId = USER_SHEET_ID;
   const secondColumn = isWeekend(dateFromString(sheetName)) ? `P` : `N`;
   const range = `C4:${secondColumn}7`;
 
   // Получаем структуру листа с данными о слияниях
-  const sheetInfo = await sheets.spreadsheets.get({
+  const sheetInfo = await sheetsClient.spreadsheets.get({
     spreadsheetId,
     ranges: [`${sheetName}!${range}`],
     includeGridData: true,
@@ -1196,17 +1073,12 @@ async function getTablesInfo(sheetName) {
 }
 
 async function getUserBookingsArray(sheetName) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: KEY_FILE,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
   const spreadsheetId = USER_SHEET_ID;
   const secondColumn = isWeekend(dateFromString(sheetName)) ? `P` : `N`;
   const range = `C4:${secondColumn}7`;
 
   // Получаем структуру листа с данными о слияниях
-  const sheetInfo = await sheets.spreadsheets.get({
+  const sheetInfo = await sheetsClient.spreadsheets.get({
     spreadsheetId,
     ranges: [`${sheetName}!${range}`],
     includeGridData: true,
@@ -1239,15 +1111,8 @@ const deleteMessage = async(chatId, messageId) => {
 
 async function findUserLastMessage(chatId) {
   try {
-    const auth = new google.auth.GoogleAuth({
-      keyFile: KEY_FILE,
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
-
     // 1. Получаем все данные из листа
-    const response = await sheets.spreadsheets.values.get({
+    const response = await sheetsClient.spreadsheets.values.get({
       spreadsheetId: SERVICE_SHEET_ID,
       range: 'Messages!A:C', // Получаем все колонки для поиска
     });
@@ -1277,9 +1142,6 @@ async function functionCheck() {
   console.time('Execution Time');
   let arrSorted = await getUniqueTimeButtonsForTableNew('31.05.2025', 5, 0.5)
   let arrSorted2 = await getUniqueTimeButtonsForTable('31.05.2025', 5, 0.5)
-  // let isNotHidden = await checkSheetHidden('22.05.2025')
-  // const bookingsByDate = await getBookingsByDate('22.05.2025')
-  // let rangeValues = await getTablesInfo('21.05.2025');
   console.timeEnd('Execution Time');
 }
 
@@ -1383,12 +1245,10 @@ bot.on('callback_query', async (callbackQuery) => {
     dateChoosen = messageText.replace('dayChosen_','')
     let isNotHidden = await checkSheetHidden(dateChoosen)
     if (isNotHidden) {
-      // const bookingInfo = await checkUserBooking(chat_id, dateChoosen);
       const bookingsByDate = await getBookingsByDate(dateChoosen)
       const userBookings =  bookingsByDate.filter((el) => { return el.chat_id === chat_id; });
       if (userBookings.length === 0) {
         let tableInfo = await getTablesInfo(dateChoosen)
-        // let tableInfo = await getTablesInfoOld(bookingsByDate, dateChoosen)
         editMessage(chat_id, callbackQuery.message.message_id, `Актуальная информация по столам за дату ${dateChoosen}:\n${tableInfo.message}` , tableInfo.buttons)
       } else if (userBookings.length === 1) {
         let tables = ['3','4','5','6']
@@ -1448,7 +1308,6 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookDate = tableNumDateTime.split('__')[1]
     let bookTime = tableNumDateTime.split('__')[2]
 
-    // let hoursButtons = await getHoursButtons(bookDate, parseInt(tableNum), bookTime)
     let hoursButtons = await getHoursButtonsNew(bookDate, parseInt(tableNum), bookTime)
     
     hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `tableChosen_${tableNum}__${bookDate}`}, ],)
