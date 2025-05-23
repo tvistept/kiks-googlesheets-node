@@ -1,17 +1,14 @@
-// require('dotenv').config();
-const TG_TOKEN='7981454320:AAFgQ96OF0SBKWcdWMN8_0Jql3Jzb7-oF9w'
-const GOOGLE_SHEET_ID='1xubZnVNe3ED2CmUwXWHvqtwcI62RzEbIJVKeIB8a0kM';
-const GOOGLE_WORKSHEET_ID='1oxmOo_N1DGevVeoVSDwjVy8Dy3RoF3Iw1cLORJvcXfg';
-const token = TG_TOKEN;
-const sheetId = GOOGLE_SHEET_ID;
-const workSheetId = GOOGLE_WORKSHEET_ID;
-
 const TelegramBot = require('node-telegram-bot-api');
-const TODAY = new Date();
 const { google } = require('googleapis');
+const { tg_token, google_worksheet_id, google_sheet_id } = require('/app-configs/tokens.js');
+// const { tg_token, google_worksheet_id, google_sheet_id } = require('./tokens.js');
+const TG_TOKEN = tg_token;
+const USER_SHEET_ID = google_sheet_id;
+const SERVICE_SHEET_ID = google_worksheet_id;
 const KEY_FILE = '/app-configs/google.json';
 // const KEY_FILE = './google.json';
-const bot = new TelegramBot(token, {polling: true});
+const bot = new TelegramBot(TG_TOKEN, {polling: true});
+
 
 async function appendRow(spreadsheetId, range, values) {
   const auth = new google.auth.GoogleAuth({
@@ -89,7 +86,7 @@ function getRangeObject(input) {
 
 async function mergeCells(sheets, range) {
   const { sheetName, cellIndex1, cellIndex2, row } = getRangeObject(range);
-  const spreadsheetId = sheetId;
+  const spreadsheetId = USER_SHEET_ID;
 
   // Получаем sheetId по имени листа
   const sheetRes = await sheets.spreadsheets.get({ spreadsheetId });
@@ -124,7 +121,7 @@ async function mergeCells(sheets, range) {
 
 async function unmergeCells(sheets, range) {
   const { sheetName, cellIndex1, cellIndex2, row } = getRangeObject(range);
-  const spreadsheetId = sheetId;
+  const spreadsheetId = USER_SHEET_ID;
 
   // Получаем sheetId по имени листа
   const sheetRes = await sheets.spreadsheets.get({ spreadsheetId });
@@ -190,7 +187,7 @@ async function getSheetLink(sheetName) {
   });
   const authClient = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: authClient });
-  const spreadsheetId = sheetId;
+  const spreadsheetId = USER_SHEET_ID;
   // Получаем список листов и их свойства
   const res = await sheets.spreadsheets.get({ spreadsheetId });
   const sheet = res.data.sheets.find(s => s.properties.title === sheetName);
@@ -212,7 +209,7 @@ async function deleteUserBookingRow(bookingId) {
   const authClient = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: authClient });
 
-  const spreadsheetId = workSheetId;
+  const spreadsheetId = SERVICE_SHEET_ID;
   const sheetName = 'userBooking';
   const valueToDelete = bookingId;
 
@@ -277,6 +274,7 @@ function addDays(date, days) {
 }
 
 function generateDateButtons() {
+  const TODAY = new Date();
   let buttonsBronInterimArr = []
   for (let i = 0; i < 10; i++) {
     let dtText = addDays(TODAY, i).toLocaleDateString('ru-Ru')
@@ -364,7 +362,7 @@ async function checkUserPhoneAndName(chatId) {
 
     // 1. Получаем все данные из листа
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: workSheetId,
+      spreadsheetId: SERVICE_SHEET_ID,
       range: 'uniqueUsers!A:C', // Получаем все колонки для поиска
     });
 
@@ -399,7 +397,7 @@ async function getSpreadsheetLink() {
 
     // Получаем метаданные таблицы
     const response = await sheets.spreadsheets.get({
-      spreadsheetId: sheetId,
+      spreadsheetId: USER_SHEET_ID,
       fields: 'spreadsheetUrl', // Запрашиваем только URL
     });
 
@@ -422,7 +420,7 @@ async function checkSheetHidden(sheetName) {
 
     // Получаем метаданные таблицы
     const spreadsheet = await sheets.spreadsheets.get({
-      spreadsheetId: sheetId, // Замени на реальный ID
+      spreadsheetId: USER_SHEET_ID,
       fields: 'sheets(properties(sheetId,title,hidden))',
     });
 
@@ -456,7 +454,7 @@ async function getBookingsByDate(bookingDate) {
 
     const SHEET_NAME = 'userBooking';
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: workSheetId,
+      spreadsheetId: SERVICE_SHEET_ID,
       range: `${SHEET_NAME}!A2:G`, 
     });
 
@@ -475,7 +473,7 @@ async function getBookingsByDate(bookingDate) {
       let booking_minutes = null;
 
       if (booking_date_str) {
-        booking_date = booking_date_str//new Date(booking_date_str);
+        booking_date = booking_date_str
       }
 
       if (booking_time_str) {
@@ -568,7 +566,7 @@ function generateTableMessages(bookings, booking_date) {
   return {message:responseMessage, buttons:responseButtons} 
 }
 
-async function getTablesInfo(filteredBookings, bookingDate) {
+async function getTablesInfoOld(filteredBookings, bookingDate) {
   try {
     let mappedBookings = filteredBookings.map( (el) => { return {
         booking_hours: el.booking_hours, 
@@ -681,6 +679,65 @@ async function getUniqueTimeButtonsForTable(sheetName, tableNum, hours, time = n
       [`table${tableNum}`]: bookingMap.get(startHour) || ''
     };
   });
+  console.log(arrSorted)
+
+  if (time ) {
+    const index = arrSorted.findIndex(object => {
+      return object.time == time;
+    });
+    arrSorted = arrSorted.slice(index, index+4)
+  }
+  
+  const getButtonsArray = (tableNum, hours, arr) => {
+    let filteredTimeArrForButtons = []
+    let count = 0;
+    let string = '';
+    for (let i = 0; i < arr.length - (hours - 0.5) / 0.5; i++) {
+      while (count < (hours - 0.5) / 0.5) {
+        count++;
+        string = arr[i + count][`table${tableNum}`] + string;
+      }
+      count = 0;
+      if( arr[i][`table${tableNum}`] === '' && string === '') {
+        filteredTimeArrForButtons.push(arr[i].time)
+      }
+      string = '';
+      }
+    return filteredTimeArrForButtons;
+  };
+
+  let buttonsArrayRaw = getButtonsArray(tableNum, hours, arrSorted)
+  buttonsArrayRaw = buttonsArrayRaw.map( timeElement => ({text: timeElement, callback_data: `${callbackDataFlag}${tableNum}__${sheetName}__${timeElement}${firstBookTime}`})   )
+
+  const date = new Date();
+  let localeDate = date.toLocaleDateString('ru-RU')
+  let localeTime = date.toLocaleTimeString('ru-RU')
+  if (localeDate == sheetName && localeTime.split(':').map(Number)[0] > 18) {
+      buttonsArrayRaw = buttonsArrayRaw.filter( obj => convertedTimes(obj.text) > convertedTimes(localeTime))
+  }
+  let butArray = chunkIntoN(buttonsArrayRaw,4)
+  
+  let responseButtons = {  "inline_keyboard": butArray  }
+  return responseButtons;
+}
+
+async function getUniqueTimeButtonsForTableNew(sheetName, tableNum, hours, time = null) {
+  let callbackDataFlag = time ? 'timeSecondBookChosen_' : 'timeChosen_'
+  let firstBookTime = time ? `__${time}` : ''
+
+  let timeSlots = generateTimeSlots(dateFromString(sheetName))
+  let userBookingArray = await getUserBookingsArray(sheetName)
+  let tableIndex = tableNum-3
+  let tableName = `table${tableNum}`
+
+  let arrSorted = userBookingArray[tableIndex].values.map( (object, index) => {
+    let time = timeSlots[index].split('-')[0]
+    if (object.effectiveValue || !object.userEnteredFormat) {
+      return {time, [tableName]:'occupied'} 
+    } else {
+      return {time, [tableName]:''} 
+    }
+  })
 
   if (time ) {
     const index = arrSorted.findIndex(object => {
@@ -795,6 +852,7 @@ async function getHoursButtons(bookingDate, tableNum, bookingTime, firstBookTime
       [`table${tableNum}`]: bookingMap.get(startHour) || ''
     };
   });
+  console.log(arrSorted)
 
   let availableSlotCnt = 2;
   if (firstBookTime) {
@@ -804,7 +862,45 @@ async function getHoursButtons(bookingDate, tableNum, bookingTime, firstBookTime
     arrSorted = arrSorted.slice(chosenTimeIndex, chosenTimeIndex + availableSlotCnt)
   }
 
-  console.log(arrSorted)
+  let tablesTime = setTableTimeArr(arrSorted)
+  let hoursAvailability = checkHoursAvailability(tablesTime)
+  let nextSlotObj = checkNextSlots(arrSorted, bookingTime, `table${tableNum}` )
+  let hoursButtons = []
+  
+  if (hoursAvailability[`table${tableNum}oneHour`] && nextSlotObj.oneHour) {
+    hoursButtons.push([ {text: '1 час', callback_data: `hoursChosen_${tableNum}__${bookingDate}__${bookingTime}__1`}, ],)
+  }
+  if (hoursAvailability[`table${tableNum}twoHour`] && nextSlotObj.twoHour) {
+    hoursButtons.push([ {text: '2 часа', callback_data: `hoursChosen_${tableNum}__${bookingDate}__${bookingTime}__2`}, ],)
+  }
+
+  let finalHoursButtons = { "inline_keyboard": hoursButtons }
+  return finalHoursButtons
+}
+
+async function getHoursButtonsNew(bookingDate, tableNum, bookingTime, firstBookTime) {
+  let timeSlots = generateTimeSlots(dateFromString(bookingDate))
+  let userBookingArray = await getUserBookingsArray(bookingDate)
+  let tableIndex = tableNum-3
+  let tableName = `table${tableNum}`
+
+  let arrSorted = userBookingArray[tableIndex].values.map( (object, index) => {
+    let time = timeSlots[index]
+    if (object.effectiveValue || !object.userEnteredFormat) {
+      return {time, [tableName]:'occupied'} 
+    } else {
+      return {time, [tableName]:''} 
+    }
+  })
+  
+
+  let availableSlotCnt = 2;
+  if (firstBookTime) {
+    let chosenTimeIndex = arrSorted.findIndex(object => {
+      return object.time.includes(`${firstBookTime}-`);
+    });
+    arrSorted = arrSorted.slice(chosenTimeIndex, chosenTimeIndex + availableSlotCnt)
+  }
 
   let tablesTime = setTableTimeArr(arrSorted)
   let hoursAvailability = checkHoursAvailability(tablesTime)
@@ -894,9 +990,9 @@ async function bookTable(bookDate, bookTime, tableNum, hours, userName, chat_id)
 
       if (parseInt(hours) === 2) {
           const nextColumn = String.fromCharCode(startColumn.charCodeAt(0) + 1);
-          await writeToRange(sheetId, `${bookDate}!${startColumn}${startRow}:${nextColumn}${startRow}`, [userName, userName]);
+          await writeToRange(USER_SHEET_ID, `${bookDate}!${startColumn}${startRow}:${nextColumn}${startRow}`, [userName, userName]);
       } else {
-        await writeToCell(sheetId, `${bookDate}!${startColumn}${startRow}`, userName);
+        await writeToCell(USER_SHEET_ID, `${bookDate}!${startColumn}${startRow}`, userName);
       }
       return true
     } catch (error) {
@@ -907,7 +1003,6 @@ async function bookTable(bookDate, bookTime, tableNum, hours, userName, chat_id)
 }
 
 async function deleteBooking(bookDate, bookTime, tableNum, hours) { 
-  console.log(bookDate, bookTime, tableNum, hours)
     try {
       // Определяем колонку для времени
       let timeToColumn = {}
@@ -946,15 +1041,182 @@ async function deleteBooking(bookDate, bookTime, tableNum, hours) {
 
       if (parseInt(hours) === 2) {
           const nextColumn = String.fromCharCode(startColumn.charCodeAt(0) + 1);
-          await writeToRange(sheetId, `${bookDate}!${startColumn}${startRow}:${nextColumn}${startRow}`, ['', ''], true);
+          await writeToRange(USER_SHEET_ID, `${bookDate}!${startColumn}${startRow}:${nextColumn}${startRow}`, ['', ''], true);
       } else {
-        await writeToCell(sheetId, `${bookDate}!${startColumn}${startRow}`, '');
+        await writeToCell(USER_SHEET_ID, `${bookDate}!${startColumn}${startRow}`, '');
       }
       return true
     } catch (error) {
       console.log(error)
       return false
     }
+}
+
+async function getRangeValues(sheetName) {
+  const auth = new google.auth.GoogleAuth({
+    keyFile: KEY_FILE,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
+
+  const spreadsheetId = USER_SHEET_ID;
+  const range = `${sheetName}!C1:N7`;
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range,
+  });
+
+  console.log('Значения ячеек:', res.data.values);
+  return res.data.values;
+}
+
+async function getMergedCellValues(sheetName) {
+  const auth = new google.auth.GoogleAuth({
+    keyFile: KEY_FILE,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
+  const spreadsheetId = USER_SHEET_ID;
+  let secondColumn = isWeekend(dateFromString(sheetName)) ? `P` : `N`;
+  const range = `C4:${secondColumn}7`;
+
+  // Получаем структуру листа с данными о слияниях
+  const sheetInfo = await sheets.spreadsheets.get({
+    spreadsheetId,
+    ranges: [`${sheetName}!${range}`],
+    includeGridData: true,
+  });
+
+  const sheet = sheetInfo.data.sheets[0];
+  const merges = sheet.merges || [];
+  const grid = sheet.data[0].rowData || [];
+
+  // Собираем значения в двумерный массив
+  const values = grid.map(row =>
+    (row.values || []).map(cell => (cell.formattedValue !== undefined ? cell.formattedValue : ''))
+  );
+
+  // Заполняем объединённые ячейки значениями из верхней левой
+  merges.forEach(merge => {
+    const startRow = merge.startRowIndex - grid[0].startRow || 0;
+    const endRow = merge.endRowIndex - grid[0].startRow || 0;
+    const startCol = merge.startColumnIndex - grid[0].startColumn || 0;
+    const endCol = merge.endColumnIndex - grid[0].startColumn || 0;
+
+    const value = values[startRow][startCol];
+    for (let r = startRow; r < endRow; r++) {
+      for (let c = startCol; c < endCol; c++) {
+        values[r][c] = value;
+      }
+    }
+  });
+
+  return values;
+}
+
+function generateMessageForTable(times) {
+  function isDecimal(num) {
+    return num % 1 !== 0;
+  }
+
+  let splitedTimes = times.map( e=> {return [e.split('-')[0], e.split('-')[1]]} ).flat() 
+  const convertedTimes = splitedTimes.map(time => {
+    const [hours, minutes] = time.split(':').map(Number);
+    let toReturn = hours + (minutes / 60)
+    if (toReturn < 12) {
+      return toReturn+24
+    }
+    return toReturn
+  });
+  
+  let filteredTimes = convertedTimes.filter( e => { if (!(convertedTimes.filter( el => el == e).length > 1 )) { return true }})
+  let message = 'свободен для бронирования';
+  filteredTimes.forEach( (element, index) => {
+    let nextValue = filteredTimes[index+1]
+    if (index %2 === 0 && nextValue - element >= 0.5) {
+      element = element >= 24 ? element-24 : element
+      nextValue = nextValue >= 24 ? nextValue-24 : nextValue
+      message = (isDecimal(element) ? `${message} с ${Math.floor(element)+':30'}` : `${message} с ${element+':00'}`) + 
+        (isDecimal(nextValue) ?  ` до ${Math.floor(nextValue)+':30'};` : ` до ${nextValue+':00'};`)
+    } 
+  })
+  return message.slice(0,message.length-1)
+}
+
+async function getTablesInfo(sheetName) {
+  const auth = new google.auth.GoogleAuth({
+    keyFile: KEY_FILE,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
+  const spreadsheetId = USER_SHEET_ID;
+  const secondColumn = isWeekend(dateFromString(sheetName)) ? `P` : `N`;
+  const range = `C4:${secondColumn}7`;
+
+  // Получаем структуру листа с данными о слияниях
+  const sheetInfo = await sheets.spreadsheets.get({
+    spreadsheetId,
+    ranges: [`${sheetName}!${range}`],
+    includeGridData: true,
+  });
+
+  const sheet = sheetInfo.data.sheets[0];
+  const grid = sheet.data[0].rowData || [];
+  let timeSlots = generateTimeSlots(dateFromString(sheetName))
+  let butArray = []
+  let messageArray = []
+
+  grid.forEach( (row, index) => {
+    let tableIndex = index+3
+    let tableName = `table${tableIndex}`
+    let arrSorted = row.values.map( (object, index) => {
+      if (object.effectiveValue || !object.userEnteredFormat) {
+        return {time: timeSlots[index], [tableName]:'occupied'} 
+      } else {
+        return {time: timeSlots[index], [tableName]:null} 
+      }
+    })
+
+    let tablesTime = setTableTimeArr(arrSorted)
+    let hoursAvailability = checkHoursAvailability(tablesTime)
+    if (hoursAvailability[`${tableName}moietyHour`]) {
+      butArray.push([{text: `стол №${tableIndex}`, callback_data: `tableChosen_${tableIndex}__${sheetName}`}]) 
+    }
+    
+    let tableMsg = hoursAvailability[`${tableName}moietyHour`] > 0 ? `🟢 Стол №${tableIndex} ` + generateMessageForTable(tablesTime[`table${tableIndex}`]) : `🔴 Стол №${tableIndex} занят на весь день` 
+    messageArray.push(tableMsg)
+  })
+  butArray.push([{text: '<< назад', callback_data: 'back_to_stol_bron'},])
+  let responseButtons = { "inline_keyboard": butArray }
+  let returnObj = {
+      "message":messageArray.join('\n'),
+      "buttons":responseButtons
+  }
+  return returnObj
+}
+
+async function getUserBookingsArray(sheetName) {
+  const auth = new google.auth.GoogleAuth({
+    keyFile: KEY_FILE,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+  const sheets = google.sheets({ version: 'v4', auth: await auth.getClient() });
+  const spreadsheetId = USER_SHEET_ID;
+  const secondColumn = isWeekend(dateFromString(sheetName)) ? `P` : `N`;
+  const range = `C4:${secondColumn}7`;
+
+  // Получаем структуру листа с данными о слияниях
+  const sheetInfo = await sheets.spreadsheets.get({
+    spreadsheetId,
+    ranges: [`${sheetName}!${range}`],
+    includeGridData: true,
+  });
+
+  const sheet = sheetInfo.data.sheets[0];
+  const grid = sheet.data[0].rowData || [];
+  return grid;
 }
 
 const sendText = async(chatId, text, replyMarkup = null) => {
@@ -988,7 +1250,7 @@ async function findUserLastMessage(chatId) {
 
     // 1. Получаем все данные из листа
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: workSheetId,
+      spreadsheetId: SERVICE_SHEET_ID,
       range: 'Messages!A:C', // Получаем все колонки для поиска
     });
 
@@ -1013,6 +1275,16 @@ async function findUserLastMessage(chatId) {
   }
 }
 
+async function functionCheck() {
+  console.time('Execution Time');
+  let arrSorted = await getUniqueTimeButtonsForTableNew('31.05.2025', 5, 0.5)
+  let arrSorted2 = await getUniqueTimeButtonsForTable('31.05.2025', 5, 0.5)
+  // let isNotHidden = await checkSheetHidden('22.05.2025')
+  // const bookingsByDate = await getBookingsByDate('22.05.2025')
+  // let rangeValues = await getTablesInfo('21.05.2025');
+  console.timeEnd('Execution Time');
+}
+
 bot.on('message', async (msg) => {
   let user = msg.chat.first_name;
   let userNickName = msg.chat.username;
@@ -1029,7 +1301,6 @@ bot.on('message', async (msg) => {
         await bot.sendMessage(chat_id, messageToGreet, {parse_mode: 'HTML', no_webpage:true, disable_web_page_preview:true, link_preview_options: {is_disabled: true}, reply_markup: BUTTONS_BEGIN_BOOKING});
       } else {
         let picurl = 'https://i.imgur.com/Q12DNEr.mp4'
-        
         await sendDocument(chat_id, 'Как к тебе обращаться?', picurl)
       }
     }
@@ -1052,29 +1323,21 @@ bot.on('message', async (msg) => {
     }
 
     if (messageText === '/check') {
-      await bot.sendMessage(chat_id, 'Выполняется поиск последнего сообщения в листе сообщений');
-      let {lastMessage} = await findUserLastMessage(chat_id)
-      console.log(lastMessage)
-      await bot.sendMessage(chat_id, 'Проверка завершена успешно');
+      await functionCheck()
     }
   } else  {
     let {lastMessage} = await findUserLastMessage(chat_id)
     if (lastMessage.includes('/start')) {
       if (messageText) {
-        // let checkedUserName = await checkUserPhoneAndName(chat_id)
         let {userName } = await checkUserPhoneAndName(chat_id)
-
         if (!userName) {
-          // createNewUser(chat_id, user, userNickName)
-          // setNameToUser(chat_id, messageText)
           const values = [[chat_id, user, messageText, null, null, userNickName]]; 
-          appendRow(workSheetId, 'uniqueUsers', values);
+          appendRow(SERVICE_SHEET_ID, 'uniqueUsers', values);
           userName = messageText;
         }
         
         let link = await getSpreadsheetLink()
         let messageToGreet = `Салют, ${userName}!\nИди по ссылке в <a href="${link}">гугл-таблицу</a>, чтобы прикинуть кий к носу!\n\nЕсть подходящий слот — возвращайся сюда и тыкай в кнопку, иначе можешь попытать удачу в живой очереди на месте. \n\nТакже ознакомься с правилами нашего клуба: /rules`
-        // sendText(chat_id, messageToGreet, BUTTONS_BEGIN_BOOKING )  
         await bot.sendMessage(chat_id, messageToGreet, {parse_mode: 'HTML', disable_web_page_preview:true, link_preview_options: {is_disabled: true}, reply_markup: BUTTONS_BEGIN_BOOKING});
       } else {
         sendText(chat_id, 'Извини, такое имя не подходит. Попробуй другое') 
@@ -1086,18 +1349,18 @@ bot.on('message', async (msg) => {
 
   if (messageText) {
     const values = [[chat_id, user, messageText, formatDate(messageDate), userNickName]]; 
-    appendRow(workSheetId, 'Messages', values);
+    appendRow(SERVICE_SHEET_ID, 'Messages', values);
   }
-  
-  
-
 });
 
 bot.on('callback_query', async (callbackQuery) => {
-  chat_id = callbackQuery.message.chat.id
-  user = callbackQuery.message.chat.first_name
-  messageText = callbackQuery.data
-  userNickName = callbackQuery.message.chat.username
+  let chat_id = callbackQuery.message.chat.id
+  let user = callbackQuery.message.chat.first_name
+  let messageText = callbackQuery.data
+  let userNickName = callbackQuery.message.chat.username
+  let messageDate = new Date()
+  const values = [[chat_id, user, messageText, formatDate(messageDate), userNickName]]; 
+  appendRow(SERVICE_SHEET_ID, 'Messages', values);
 
   const BUTTONS_BRON = {
     "inline_keyboard": generateDateButtons()
@@ -1112,11 +1375,13 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 
   if (messageText === 'back_to_stol_bron_from_delete') {
-      deleteMessage(chat_id, callbackQuery.message.message_id )
-      sendText(chat_id, `Выбери дату, на которую хочешь забронировать стол`, BUTTONS_BRON)
-    }
+    deleteMessage(chat_id, callbackQuery.message.message_id )
+    sendText(chat_id, `Выбери дату, на которую хочешь забронировать стол`, BUTTONS_BRON)
+  }
 
   if (messageText.includes('dayChosen')) {
+    editMessage(chat_id, callbackQuery.message.message_id, `Загружаю актуальную информацию`)
+    console.time('Execution Time');
     dateChoosen = messageText.replace('dayChosen_','')
     let isNotHidden = await checkSheetHidden(dateChoosen)
     if (isNotHidden) {
@@ -1124,7 +1389,8 @@ bot.on('callback_query', async (callbackQuery) => {
       const bookingsByDate = await getBookingsByDate(dateChoosen)
       const userBookings =  bookingsByDate.filter((el) => { return el.chat_id === chat_id; });
       if (userBookings.length === 0) {
-        let tableInfo = await getTablesInfo(bookingsByDate, dateChoosen)
+        let tableInfo = await getTablesInfo(dateChoosen)
+        // let tableInfo = await getTablesInfoOld(bookingsByDate, dateChoosen)
         editMessage(chat_id, callbackQuery.message.message_id, `Актуальная информация по столам за дату ${dateChoosen}:\n${tableInfo.message}` , tableInfo.buttons)
       } else if (userBookings.length === 1) {
         let tables = ['3','4','5','6']
@@ -1152,6 +1418,7 @@ bot.on('callback_query', async (callbackQuery) => {
     } else {
       editMessage(chat_id, callbackQuery.message.message_id, `На эту дату забронировать нельзя(` , BUTTONS_BACK_ONE_STEP)
     }
+    console.timeEnd('Execution Time');
   }
 
   if (messageText.includes('tableChosen')) {
@@ -1160,7 +1427,7 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookDate = tableNumAndDate.split('__')[1]
     let hours = 0.5;
 
-    let timeButtons = await getUniqueTimeButtonsForTable(bookDate, parseInt(tableNum), hours )
+    let timeButtons = await getUniqueTimeButtonsForTableNew(bookDate, parseInt(tableNum), hours )
     timeButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
     editMessage(chat_id, callbackQuery.message.message_id, `Отлично! Стол №${tableNum} на дату ${bookDate}.\nВо сколько хочешь начать играть?`, timeButtons)
   }
@@ -1172,7 +1439,7 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookTime = tableNumDateTime.split('__')[2]
     let hours = 0.5;
 
-    let timeButtons = await getUniqueTimeButtonsForTable(bookDate, parseInt(tableNum), hours, bookTime )
+    let timeButtons = await getUniqueTimeButtonsForTableNew(bookDate, parseInt(tableNum), hours, bookTime )
     timeButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
     editMessage(chat_id, callbackQuery.message.message_id, `Отлично! Стол №${tableNum} на дату ${bookDate}.\nВо сколько хочешь начать играть?`, timeButtons)
   }
@@ -1183,7 +1450,9 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookDate = tableNumDateTime.split('__')[1]
     let bookTime = tableNumDateTime.split('__')[2]
 
-    let hoursButtons = await getHoursButtons(bookDate, parseInt(tableNum), bookTime)
+    // let hoursButtons = await getHoursButtons(bookDate, parseInt(tableNum), bookTime)
+    let hoursButtons = await getHoursButtonsNew(bookDate, parseInt(tableNum), bookTime)
+    
     hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `tableChosen_${tableNum}__${bookDate}`}, ],)
     editMessage(chat_id, callbackQuery.message.message_id, `Теперь выбери продолжительность игры`, hoursButtons)
   }
@@ -1195,7 +1464,7 @@ bot.on('callback_query', async (callbackQuery) => {
     let bookTime = tableNumDateTime.split('__')[2]
     let firstBookTime = tableNumDateTime.split('__')[3]
 
-    let hoursButtons = await getHoursButtons(bookDate, parseInt(tableNum), bookTime, firstBookTime)
+    let hoursButtons = await getHoursButtonsNew(bookDate, parseInt(tableNum), bookTime, firstBookTime)
     hoursButtons.inline_keyboard.push([ {text: '<< назад', callback_data: `dayChosen_${bookDate}`}, ],)
     editMessage(chat_id, callbackQuery.message.message_id, `Теперь выбери продолжительность игры`, hoursButtons)
   }
@@ -1215,7 +1484,7 @@ bot.on('callback_query', async (callbackQuery) => {
         if (bookFinished) {
           let bookingId = generateBookingId(chat_id, bookDate, bookTime, tableNum)
           let bookingValues = [[chat_id, user, userName, bookDate, hours, bookingId, bookTime,null, null, callbackQuery.message.message_id]];
-          appendRow(workSheetId, 'userBooking', bookingValues);
+          appendRow(SERVICE_SHEET_ID, 'userBooking', bookingValues);
           let sheetLink = await getSheetLink(bookDate)
 
           const BUTTONS_BOOK_READY = {
